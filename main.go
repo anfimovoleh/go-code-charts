@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"sort"
 	"time"
 
 	"github.com/pkg/errors"
@@ -13,10 +14,7 @@ import (
 	"github.com/go-git/go-git/v5/storage/memory"
 )
 
-type Point struct {
-	Timestamp time.Time
-	FileList  []string
-}
+type Points map[string][]time.Time
 
 type App struct {
 	log *zap.Logger
@@ -32,7 +30,7 @@ func (a App) FetchRepo(url string) (*git.Repository, error) {
 	})
 }
 
-func (a App) ChangeCharts(repo *git.Repository) ([]Point, error) {
+func (a App) ChangeCharts(repo *git.Repository) (Points, error) {
 	ref, err := repo.Head()
 	if err != nil {
 		return nil, errors.Wrap(err, "get head")
@@ -43,33 +41,33 @@ func (a App) ChangeCharts(repo *git.Repository) ([]Point, error) {
 		return nil, errors.Wrap(err, "retrieve commit history")
 	}
 
-	var points []Point
+	points := make(Points)
 
-	// ... just iterates over the commits, printing it
 	err = cIter.ForEach(func(c *object.Commit) error {
 		files, err := c.Files()
 		if err != nil {
 			return errors.Wrapf(err, "get files from commit %s", c.Hash)
 		}
 
-		var fileNames []string
 		err = files.ForEach(func(file *object.File) error {
-			fileNames = append(fileNames, file.Name)
+			points[file.Name] = append(points[file.Name], c.Author.When)
 			return nil
 		})
 		if err != nil {
 			return errors.Wrapf(err, "iterate over files in commit %s", c.Hash)
 		}
 
-		points = append(points, Point{
-			Timestamp: c.Author.When,
-			FileList:  fileNames,
-		})
-
 		return nil
 	})
 	if err != nil {
 		return nil, errors.Wrap(err, "process commit history")
+	}
+
+	// sort timestamps for each file
+	for file := range points {
+		sort.Slice(points[file], func(i, j int) bool {
+			return points[file][i].Before(points[file][j])
+		})
 	}
 
 	return points, nil
@@ -100,5 +98,11 @@ func main() {
 		log.With(zap.Error(err)).Fatal("failed to get changeCharts")
 	}
 
-	log.With(zap.Any("points", points)).Info("result")
+	for key, vals := range points {
+		fmt.Println("file:", key)
+		fmt.Println("values:", vals)
+		fmt.Println("________________________________________________________________________")
+	}
+
+	//log.With(zap.Any("points", points)).Info("result")
 }

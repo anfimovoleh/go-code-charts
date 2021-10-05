@@ -1,4 +1,5 @@
 .idea
+.local
 
 # Binaries for programs and plugins
 *.exe
